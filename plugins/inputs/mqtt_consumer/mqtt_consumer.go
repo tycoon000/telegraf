@@ -3,6 +3,7 @@ package mqtt_consumer
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,9 @@ type MQTTConsumer struct {
 
 	parser parsers.Parser
 
+	TopicTagsEnabled bool     `toml:"topicTagsEnabled"`
+	TopicTags        []string `toml:"topicTags"`
+
 	// Legacy metric buffer support
 	MetricBuffer int
 
@@ -49,45 +53,53 @@ type MQTTConsumer struct {
 }
 
 var sampleConfig = `
-  ## MQTT broker URLs to be used. The format should be scheme://host:port,
-  ## schema can be tcp, ssl, or ws.
-  servers = ["tcp://localhost:1883"]
+## MQTT broker URLs to be used. The format should be scheme://host:port,
+## schema can be tcp, ssl, or ws.
+servers = ["tcp://localhost:1883"]
 
-  ## MQTT QoS, must be 0, 1, or 2
-  qos = 0
-  ## Connection timeout for initial connection in seconds
-  connection_timeout = "30s"
+## MQTT QoS, must be 0, 1, or 2
+qos = 0
+## Connection timeout for initial connection in seconds
+connection_timeout = "30s"
 
-  ## Topics to subscribe to
-  topics = [
-    "telegraf/host01/cpu",
-    "telegraf/+/mem",
-    "sensors/#",
-  ]
+## Topics to subscribe to
+topics = [
+  "telegraf/host01/cpu",
+  "telegraf/+/mem",
+  "sensors/#",
+]
+# Enable topic translation into tags
+topicTagsEnabled = true
 
-  # if true, messages that can't be delivered while the subscriber is offline
-  # will be delivered when it comes back (such as on service restart).
-  # NOTE: if true, client_id MUST be set
-  persistent_session = false
-  # If empty, a random client ID will be generated.
-  client_id = ""
+# Topics to translate into tags
+topicTags = [
+	"gate",
+	"actor"
+]
 
-  ## username and password to connect MQTT server.
-  # username = "telegraf"
-  # password = "metricsmetricsmetricsmetrics"
+# if true, messages that can't be delivered while the subscriber is offline
+# will be delivered when it comes back (such as on service restart).
+# NOTE: if true, client_id MUST be set
+persistent_session = false
+# If empty, a random client ID will be generated.
+client_id = ""
 
-  ## Optional TLS Config
-  # tls_ca = "/etc/telegraf/ca.pem"
-  # tls_cert = "/etc/telegraf/cert.pem"
-  # tls_key = "/etc/telegraf/key.pem"
-  ## Use TLS but skip chain & host verification
-  # insecure_skip_verify = false
+## username and password to connect MQTT server.
+# username = "telegraf"
+# password = "metricsmetricsmetricsmetrics"
 
-  ## Data format to consume.
-  ## Each data format has its own unique set of configuration options, read
-  ## more about them here:
-  ## https://github.com/influxdata/telegraf/blob/master/docs/DATA_FORMATS_INPUT.md
-  data_format = "influx"
+## Optional TLS Config
+# tls_ca = "/etc/telegraf/ca.pem"
+# tls_cert = "/etc/telegraf/cert.pem"
+# tls_key = "/etc/telegraf/key.pem"
+## Use TLS but skip chain & host verification
+# insecure_skip_verify = false
+
+## Data format to consume.
+## Each data format has its own unique set of configuration options, read
+## more about them here:
+## https://github.com/influxdata/telegraf/blob/master/docs/DATA_FORMATS_INPUT.md
+data_format = "json"
 `
 
 func (m *MQTTConsumer) SampleConfig() string {
@@ -188,11 +200,46 @@ func (m *MQTTConsumer) receiver() {
 
 			for _, metric := range metrics {
 				tags := metric.Tags()
-				tags["topic"] = topic
+				if m.TopicTagsEnabled {
+					m.parseTopicAndAddTags(topic, tags)
+				}
 				m.acc.AddFields(metric.Name(), metric.Fields(), tags, metric.Time())
 			}
 		}
 	}
+}
+
+func (m *MQTTConsumer) parseTopicAndAddTags(topic string, tags map[string]string) {
+	topicURL, err := url.Parse(topic)
+	if err != nil {
+		m.acc.AddError(fmt.Errorf("E! MQTT Error Parsing Topic %v", topic))
+		return
+	}
+	path := strings.TrimPrefix(topicURL.Path, "/")
+	m.addTagsFromTopic(strings.Split(path, "/"), tags)
+}
+
+func (m *MQTTConsumer) addTagsFromTopic(topic []string, tags map[string]string) {
+	for i := 0; i < len(topic); i++ {
+		if m.checkIfInTopicTags(topic[i]) {
+			if i+1 < len(topic) {
+				tags[topic[i]] = topic[i+1]
+				i++
+			}
+		}
+	}
+	for k, v := range tags {
+		log.Printf("key : %v value %v\n", k, v)
+	}
+}
+
+func (m *MQTTConsumer) checkIfInTopicTags(tag string) bool {
+	for _, t := range m.TopicTags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MQTTConsumer) recvMessage(_ mqtt.Client, msg mqtt.Message) {
