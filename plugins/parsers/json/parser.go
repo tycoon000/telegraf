@@ -18,9 +18,10 @@ var (
 )
 
 type JSONParser struct {
-	MetricName  string
-	TagKeys     []string
-	DefaultTags map[string]string
+	MetricName     string
+	TagKeys        []string
+	FieldWhitelist []string
+	DefaultTags    map[string]string
 }
 
 func (p *JSONParser) parseArray(buf []byte) ([]telegraf.Metric, error) {
@@ -33,9 +34,33 @@ func (p *JSONParser) parseArray(buf []byte) ([]telegraf.Metric, error) {
 		return nil, err
 	}
 	for _, item := range jsonOut {
+		if err = p.whitelistFields(item); err != nil {
+			return nil, err
+		}
 		metrics, err = p.parseObject(metrics, item)
 	}
 	return metrics, nil
+}
+
+func (p *JSONParser) whitelistFields(item map[string]interface{}) error {
+	if len(p.FieldWhitelist) == 0 {
+		return nil
+	}
+	for k := range item {
+		if !p.checkFieldname(k) {
+			return fmt.Errorf("fieldname %v not in whitelist", k)
+		}
+	}
+	return nil
+}
+
+func (p *JSONParser) checkFieldname(fieldname string) bool {
+	for _, f := range p.FieldWhitelist {
+		if f == fieldname {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *JSONParser) parseObject(metrics []telegraf.Metric, jsonOut map[string]interface{}) ([]telegraf.Metric, error) {
@@ -111,6 +136,9 @@ func (p *JSONParser) Parse(buf []byte) ([]telegraf.Metric, error) {
 		err := json.Unmarshal(buf, &jsonOut)
 		if err != nil {
 			err = fmt.Errorf("unable to parse out as JSON, %s", err)
+			return nil, err
+		}
+		if err = p.whitelistFields(jsonOut); err != nil {
 			return nil, err
 		}
 		return p.parseObject(metrics, jsonOut)

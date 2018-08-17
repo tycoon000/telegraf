@@ -58,6 +58,8 @@ type Config struct {
 
 	// TagKeys only apply to JSON data
 	TagKeys []string
+	// FieldWhitelist only applies currently to JSON data
+	FieldWhitelist []string
 	// MetricName applies to JSON & value. This will be the name of the measurement.
 	MetricName string
 
@@ -108,7 +110,7 @@ func NewParser(config *Config) (Parser, error) {
 	switch config.DataFormat {
 	case "json":
 		parser, err = NewJSONParser(config.MetricName,
-			config.TagKeys, config.DefaultTags)
+			config.TagKeys, config.DefaultTags, config.FieldWhitelist)
 	case "value":
 		parser, err = NewValueParser(config.MetricName,
 			config.DataType, config.DefaultTags)
@@ -170,11 +172,13 @@ func NewJSONParser(
 	metricName string,
 	tagKeys []string,
 	defaultTags map[string]string,
+	fieldWhitelist []string,
 ) (Parser, error) {
 	parser := &json.JSONParser{
-		MetricName:  metricName,
-		TagKeys:     tagKeys,
-		DefaultTags: defaultTags,
+		MetricName:     metricName,
+		TagKeys:        tagKeys,
+		DefaultTags:    defaultTags,
+		FieldWhitelist: fieldWhitelist,
 	}
 	return parser, nil
 }

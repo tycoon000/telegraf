@@ -180,8 +180,8 @@ func (h *HttpJson) gatherServer(
 	tags := map[string]string{
 		"server": serverURL,
 	}
-
-	parser, err := parsers.NewJSONParser(msrmnt_name, h.TagKeys, tags)
+	fieldwhiteList := make([]string, 0)
+	parser, err := parsers.NewJSONParser(msrmnt_name, h.TagKeys, tags, fieldwhiteList)
 	if err != nil {
 		return err
 	}
