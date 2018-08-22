@@ -197,7 +197,6 @@ func (m *MQTTConsumer) receiver() {
 				m.acc.AddError(fmt.Errorf("E! MQTT Parse Error\nmessage: %s\nerror: %s",
 					string(msg.Payload()), err.Error()))
 			}
-
 			for _, metric := range metrics {
 				tags := metric.Tags()
 				if m.TopicTagsEnabled {
@@ -227,9 +226,6 @@ func (m *MQTTConsumer) addTagsFromTopic(topic []string, tags map[string]string) 
 				i++
 			}
 		}
-	}
-	for k, v := range tags {
-		log.Printf("key : %v value %v\n", k, v)
 	}
 }
 
